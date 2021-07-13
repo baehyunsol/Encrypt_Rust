@@ -1,4 +1,8 @@
 use std::fs::read;
+use crate::hash::{hash_password_1, hash_password_2, hash_1, hash_2};
+
+
+mod hash;
 
 
 #[derive(Copy, Clone, Debug)]
@@ -12,7 +16,7 @@ enum operation_type {
 
 #[derive(Copy, Clone, Debug)]
 struct operation {
-    n: usize,
+    op_size: usize,
     op: operation_type
 }
 
@@ -47,9 +51,9 @@ fn do_ops(target: &Vec<u8>, ops: &Vec<operation>) -> Vec<u8> {
             result_cache = result_cache[8..].to_vec();
         }
 
-        let n = ops[ops_index].n;
+        let op_size = ops[ops_index].op_size;
 
-        if curr_index == target_length && target_cache.len() < n {
+        if curr_index == target_length && target_cache.len() < op_size {
             result_cache.extend(target_cache);
             break;
         }
@@ -57,23 +61,23 @@ fn do_ops(target: &Vec<u8>, ops: &Vec<operation>) -> Vec<u8> {
         match ops[ops_index].op {
 
             operation_type::FLIP => {
-                result_cache.extend(op_flip(&target_cache[..n].to_vec()));
-                target_cache = target_cache[n..].to_vec();
+                result_cache.extend(op_flip(&target_cache[..op_size].to_vec()));
+                target_cache = target_cache[op_size..].to_vec();
             },
 
             operation_type::NOT => {
-                result_cache.extend(op_not(&target_cache[..n].to_vec()));
-                target_cache = target_cache[n..].to_vec();
+                result_cache.extend(op_not(&target_cache[..op_size].to_vec()));
+                target_cache = target_cache[op_size..].to_vec();
             },
 
             operation_type::LSHIFT => {
-                result_cache.extend(op_lshift(&target_cache[..n].to_vec()));
-                target_cache = target_cache[n..].to_vec();
+                result_cache.extend(op_lshift(&target_cache[..op_size].to_vec()));
+                target_cache = target_cache[op_size..].to_vec();
             },
 
             operation_type::RSHIFT => {
-                result_cache.extend(op_rshift(&target_cache[..n].to_vec()));
-                target_cache = target_cache[n..].to_vec();
+                result_cache.extend(op_rshift(&target_cache[..op_size].to_vec()));
+                target_cache = target_cache[op_size..].to_vec();
             }
 
         }
@@ -96,41 +100,43 @@ fn gen_ops(password: &Vec<u8>) -> Vec<operation> {
 
     let operation_types = vec![operation_type::FLIP, operation_type::NOT, operation_type::LSHIFT, operation_type::RSHIFT];
 
-    // length를 최대한 8의 배수랑 안 친하게 써야 됨
-    // 아무렇게나 2||3개 더해도 8의 배수가 안 됨!
-    let ns: Vec<usize> = vec![7, 11, 15];
 
-    let mut hashed = hash_password(password);
-    let mut curr_val = hashed;
+    let mut op_size__sum: usize = 0;
 
-    let mut n_sum: usize = 0;
+    for i in 0..2 {
+        let mut hashed = if i == 0 { hash_password_1(password) } else { hash_password_2(password) };
+        let mut curr_val = hashed;
 
-    for _ in 0..5 {
+        for _ in 0..4 {
 
-        while curr_val > 12 {
-            let n = ns[(curr_val % 3) as usize];
-            let op_type = operation_types[(curr_val % 4) as usize];
+            while curr_val > 8 {
+                // op_size는 6 아니면 7!
+                // 최대한 8이랑 안 친하게 써야 됨!
+                let op_size = if curr_val % 8 < 4 {6} else {7};
+                let op_type = operation_types[(curr_val % 4) as usize];
 
-            result.push(
-                operation {
-                    n: n,
-                    op: op_type
-                }
-            );
+                result.push(
+                    operation {
+                        op_size: op_size,
+                        op: op_type
+                    }
+                );
 
-            n_sum += n;
-            curr_val /= 12;
+                op_size__sum += op_size;
+                curr_val /= 8;
+            }
+
+            hashed = if i == 0 { hash_1(hashed) } else { hash_2(hashed) };
+            curr_val = hashed;
         }
 
-        hashed = hash(hashed);
-        curr_val = hashed;
     }
 
     // byte 단위로 딱 맞게 잘리면 좀 이상하지??
-    if n_sum % 8 == 0 {
+    if op_size__sum % 8 == 0 {
         result.push(
             operation {
-                n: 7,
+                op_size: 7,
                 op: operation_type::FLIP
             }
         );
@@ -149,11 +155,11 @@ fn reverse_ops(ops: &Vec<operation>) -> Vec<operation> {
         |o|
         match o.op {
             operation_type::RSHIFT => operation {
-                n: o.n,
+                op_size: o.op_size,
                 op: operation_type::LSHIFT
             },
             operation_type::LSHIFT => operation {
-                n: o.n,
+                op_size: o.op_size,
                 op: operation_type::RSHIFT
             },
             _ => o.clone()
@@ -215,43 +221,6 @@ fn bools_to_u8(from: &Vec<bool>) -> u8 {
 }
 
 
-fn hash1(n: u64) -> u64 {
-    (n % 20011 + 9109) * (n % 20021 + 9218) / 0x40 % 0x10_000
-}
-
-
-fn hash2(n: u64) -> u64 {
-    (n % 20023 + 9327) * (n % 20029 + 9436) / 0x40 % 0x10_000
-}
-
-
-fn hash3(n: u64) -> u64 {
-    (n % 20047 + 9545) * (n % 20051 + 9654) / 0x40 % 0x8_000
-}
-
-fn hash4(n: u64) -> u64 {
-    (n % 20063 + 9763) * (n % 20071 + 9872) / 0x40 % 0x8_000
-}
-
-
-fn hash(n: u64) -> u64 {
-    hash4(n) * 0x800_000_000_000 + hash3(n) * 0x100_000_000 + hash2(n) * 0x10_000 + hash1(n)
-}
-
-
-fn hash_password(password: &Vec<u8>) -> u64 {
-
-    let mut result: u64 = 0;
-
-    for (i, v) in password.iter().enumerate() {
-        result += hash(hash(*v as u64) + i as u64);
-        result %= 0x4_000_000_000_000_000;
-    }
-
-    return result
-}
-
-
 fn op_not(src: &Vec<bool>) -> Vec<bool> {
     src.iter().map(|b| !b).collect()
 }
@@ -301,6 +270,7 @@ fn _decrypt(src: &Vec<u8>, password: &Vec<u8>) -> Vec<u8> {
 
 
 fn encrypt_file(src: String, password: String) -> Result<Vec<u8>, std::io::Error> {
+
     let data = read(src)?;
 
     return Ok(_encrypt(&data, &password.into_bytes()));
@@ -316,6 +286,6 @@ fn decrypt_file(src: String, password: String) -> Result<Vec<u8>, std::io::Error
 
 fn main() {
     println!("gogo");
-    std::fs::write("result.t", encrypt_file(String::from("main.rs"), String::from("1q2w3e4r")).unwrap());
+    std::fs::write("result.t", encrypt_file(String::from("Cargo.toml"), String::from("1q2w3e4r")).unwrap());
     println!("done");
 }
